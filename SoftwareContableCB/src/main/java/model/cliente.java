@@ -9,7 +9,7 @@ package model;
  * @author Martin
  */
 public class cliente {
-    
+        
     private String cuit; // Primary Key
     
     private String razonSocial;

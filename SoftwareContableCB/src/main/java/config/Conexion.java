@@ -28,7 +28,12 @@ public class Conexion {
 
                 // 3. Conectar (SQLite crea el archivo si no existe)
                 conexion = DriverManager.getConnection(url);
-                
+
+                // Activar el soporte de Claves Foráneas en SQLite
+                try (Statement stmt = conexion.createStatement()) {
+                    stmt.execute("PRAGMA foreign_keys = ON;");
+                }
+
                 // 4. Inicializar las tablas del sistema automáticamente
                 inicializarTablas();
 
@@ -42,29 +47,48 @@ public class Conexion {
     }
 
     private static void inicializarTablas() {
-        // Sentencias DDL para la estructura inicial
-        String sqlClientes = """
+        // Sentencias DDL ajustadas según el modelo Java
+        String sqlCliente = """
             CREATE TABLE IF NOT EXISTS cliente (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT NOT NULL,
-                cuit TEXT UNIQUE,
-                telefono TEXT
+                cuit TEXT PRIMARY KEY,
+                razonSocial TEXT NOT NULL,
+                nombreFantasia TEXT,
+                direccion TEXT,
+                actividades TEXT,
+                impuestosActivos TEXT,
+                tieneEmpleados NUMERIC NOT NULL
             );
             """;
 
-        String sqlAsientos = """
+        String sqlContacto = """
+            CREATE TABLE IF NOT EXISTS contacto (
+                cuit TEXT PRIMARY KEY,
+                razonSocial TEXT NOT NULL,
+                tipo TEXT NOT NULL
+            );
+            """;
+
+        String sqlComprobante = """
             CREATE TABLE IF NOT EXISTS comprobante (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                clienteCuit TEXT NOT NULL,
+                contactoCuit TEXT NOT NULL,
+                tipoOperacion TEXT NOT NULL,
                 fecha TEXT NOT NULL,
-                descripcion TEXT NOT NULL,
-                monto REAL NOT NULL
+                tipoComprobante TEXT NOT NULL,
+                montoNeto REAL NOT NULL,
+                montoIva REAL NOT NULL,
+                montoTotal REAL NOT NULL,
+                FOREIGN KEY (clienteCuit) REFERENCES cliente(cuit) ON DELETE CASCADE,
+                FOREIGN KEY (contactoCuit) REFERENCES contacto(cuit) ON DELETE RESTRICT
             );
             """;
 
         try (Statement stmt = conexion.createStatement()) {
-            // Ejecutamos cada creación de tabla
-            stmt.execute(sqlClientes);
-            stmt.execute(sqlAsientos);
+            // Ejecutamos en orden para respetar las dependencias de Claves Foráneas
+            stmt.execute(sqlCliente);
+            stmt.execute(sqlContacto);
+            stmt.execute(sqlComprobante);
         } catch (SQLException e) {
             System.err.println("Error al crear la estructura inicial de tablas: " + e.getMessage());
         }

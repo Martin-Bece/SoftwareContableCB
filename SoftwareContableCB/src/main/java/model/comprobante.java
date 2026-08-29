@@ -10,7 +10,7 @@ package model;
  */
 public class comprobante {
     
-    private Long id;
+    private int id;
     
     private String clienteCuit;  // FK al cliente
     
@@ -31,7 +31,7 @@ public class comprobante {
     public comprobante() {
     }
 
-    public comprobante(Long id, String clienteCuit, String contactoCuit, String tipoOperacion, String fecha, String tipoComprobante, double montoNeto, double montoIva, double montoTotal) {
+    public comprobante(int id, String clienteCuit, String contactoCuit, String tipoOperacion, String fecha, String tipoComprobante, double montoNeto, double montoIva, double montoTotal) {
         this.id = id;
         this.clienteCuit = clienteCuit;
         this.contactoCuit = contactoCuit;
@@ -43,11 +43,11 @@ public class comprobante {
         this.montoTotal = montoTotal;
     }
 
-    public Long getId() {
+    public int getId() {
         return id;
     }
 
-    public void setId(Long id) {
+    public void setId(int id) {
         this.id = id;
     }
 

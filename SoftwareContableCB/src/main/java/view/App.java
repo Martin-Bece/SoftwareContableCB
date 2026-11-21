@@ -3,6 +3,10 @@ package view;
 import config.Conexion;
 import service.ClienteServiceImpl;
 import service.ComprobanteServiceImpl;
+import service.ContraparteServiceImpl;
+import service.ImpuestoServiceImpl;
+import service.PercepcionServiceImpl;
+import service.ReporteServiceImpl;
 
 import javax.swing.*;
 import java.sql.SQLException;
@@ -10,9 +14,7 @@ import java.sql.SQLException;
 /**
  * Punto de entrada de la aplicacion.
  *
- * <p>Por defecto usa el backend real (SQLite) para clientes y comprobantes, y el mock
- * en modo hibrido para lo que todavia no tiene backend (percepciones, contrapartes,
- * calculo de impuestos y reportes).</p>
+ * <p>Por defecto usa el backend real (SQLite) para todos los modulos.</p>
  *
  * <p>Para abrir la version de demostracion con datos de ejemplo (todo en memoria):
  * {@code -Dcontabilidad.demo=true}.</p>
@@ -35,7 +37,7 @@ public class App {
         return new AppContext(mock, mock, mock, mock, mock, mock);
     }
 
-    /** Clientes y comprobantes reales; el resto sigue en el mock (ver ServiciosMock). */
+    /** Abre la base (o avisa y sale si no puede) y arma el contexto con los services reales. */
     static AppContext contextoReal() {
         try {
             Conexion.getConexion(); // abre la base y crea/migra el esquema antes de mostrar nada
@@ -48,9 +50,17 @@ public class App {
         }
         Runtime.getRuntime().addShutdownHook(new Thread(Conexion::cerrar));
 
+        return contextoBase();
+    }
+
+    /** Todos los services reales sobre la base configurada (sin dialogos; lo usan tambien los tests). */
+    static AppContext contextoBase() {
         ClienteServiceImpl clientes = new ClienteServiceImpl();
         ComprobanteServiceImpl comprobantes = new ComprobanteServiceImpl();
-        ServiciosMock resto = new ServiciosMock(clientes, comprobantes);
-        return new AppContext(clientes, comprobantes, resto, resto, resto, resto);
+        PercepcionServiceImpl percepciones = new PercepcionServiceImpl();
+        ImpuestoServiceImpl impuestos = new ImpuestoServiceImpl(clientes, comprobantes, percepciones);
+        ReporteServiceImpl reportes = new ReporteServiceImpl();
+        ContraparteServiceImpl contrapartes = new ContraparteServiceImpl();
+        return new AppContext(clientes, comprobantes, percepciones, impuestos, reportes, contrapartes);
     }
 }

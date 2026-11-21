@@ -3,9 +3,11 @@ package service;
 import config.Conexion;
 import dao.ClienteDAO;
 import dao.ComprobanteDAO;
+import dao.ContraparteDAO;
 import util.Cuit;
 import view.Modelos;
 import view.Modelos.Comprobante;
+import view.Modelos.Contraparte;
 import view.Modelos.Operacion;
 import view.Servicios.ComprobanteService;
 import view.Servicios.ServicioException;
@@ -24,16 +26,18 @@ public class ComprobanteServiceImpl implements ComprobanteService {
 
     private final ComprobanteDAO comprobanteDAO;
     private final ClienteDAO clienteDAO;
+    private final ContraparteDAO contraparteDAO;
     private final LectorCsvComprobantes lectorCsv;
 
     public ComprobanteServiceImpl() {
-        this(new ComprobanteDAO(), new ClienteDAO(), new LectorCsvComprobantes());
+        this(new ComprobanteDAO(), new ClienteDAO(), new ContraparteDAO(), new LectorCsvComprobantes());
     }
 
     public ComprobanteServiceImpl(ComprobanteDAO comprobanteDAO, ClienteDAO clienteDAO,
-                                  LectorCsvComprobantes lectorCsv) {
+                                  ContraparteDAO contraparteDAO, LectorCsvComprobantes lectorCsv) {
         this.comprobanteDAO = comprobanteDAO;
         this.clienteDAO = clienteDAO;
+        this.contraparteDAO = contraparteDAO;
         this.lectorCsv = lectorCsv;
     }
 
@@ -52,27 +56,34 @@ public class ComprobanteServiceImpl implements ComprobanteService {
                     periodo == null ? null : periodo.atEndOfMonth(),
                     filtro);
         } catch (SQLException e) {
-            throw ClienteServiceImpl.error("No se pudo listar los comprobantes", e);
+            throw Comun.error("No se pudo listar los comprobantes", e);
         }
     }
 
-    /** Alta (id nulo) o modificacion (id cargado). Asigna el id al dar de alta. */
+    /**
+     * Alta (id nulo) o modificacion (id cargado). Asigna el id al dar de alta.
+     * Si la contraparte no estaba en el padron del cliente, la agrega.
+     */
     @Override
     public void guardarComprobante(String cuitCliente, Comprobante comprobante) {
-        String cuit = clienteExistente(cuitCliente);
+        String cuit = Comun.clienteExistente(clienteDAO, cuitCliente);
         validar(comprobante);
         try {
-            if (comprobanteDAO.existeDuplicado(cuit, comprobante, comprobante.id)) {
-                throw new ServicioException("Ya esta cargado el comprobante " + comprobante.comprobanteCompleto()
-                        + " de " + comprobante.razonSocial + ".");
-            }
-            if (comprobante.id == null) {
-                comprobanteDAO.insertar(cuit, comprobante);
-            } else if (!comprobanteDAO.actualizar(cuit, comprobante)) {
-                throw new ServicioException("El comprobante que intentas modificar ya no existe.");
-            }
+            Conexion.enTransaccion(conn -> {
+                if (comprobanteDAO.existeDuplicado(cuit, comprobante, comprobante.id)) {
+                    throw new ServicioException("Ya esta cargado el comprobante "
+                            + comprobante.comprobanteCompleto() + " de " + comprobante.razonSocial + ".");
+                }
+                if (comprobante.id == null) {
+                    comprobanteDAO.insertar(cuit, comprobante);
+                } else if (!comprobanteDAO.actualizar(cuit, comprobante)) {
+                    throw new ServicioException("El comprobante que intentas modificar ya no existe.");
+                }
+                registrarContraparte(cuit, comprobante);
+                return null;
+            });
         } catch (SQLException e) {
-            throw ClienteServiceImpl.error("No se pudo guardar el comprobante", e);
+            throw Comun.error("No se pudo guardar el comprobante", e);
         }
     }
 
@@ -84,7 +95,7 @@ public class ComprobanteServiceImpl implements ComprobanteService {
         try {
             comprobanteDAO.eliminar(cuit, id);
         } catch (SQLException e) {
-            throw ClienteServiceImpl.error("No se pudo eliminar el comprobante", e);
+            throw Comun.error("No se pudo eliminar el comprobante", e);
         }
     }
 
@@ -117,7 +128,7 @@ public class ComprobanteServiceImpl implements ComprobanteService {
      */
     @Override
     public int importarComprobantes(String cuitCliente, List<Comprobante> comprobantes) {
-        String cuit = clienteExistente(cuitCliente);
+        String cuit = Comun.clienteExistente(clienteDAO, cuitCliente);
         if (comprobantes == null || comprobantes.isEmpty()) return 0;
         for (Comprobante c : comprobantes) {
             c.id = null;
@@ -129,26 +140,23 @@ public class ComprobanteServiceImpl implements ComprobanteService {
                 for (Comprobante c : comprobantes) {
                     if (comprobanteDAO.existeDuplicado(cuit, c, null)) continue;
                     comprobanteDAO.insertar(cuit, c);
+                    registrarContraparte(cuit, c);
                     agregados++;
                 }
                 return agregados;
             });
         } catch (SQLException e) {
-            throw ClienteServiceImpl.error("No se pudo importar los comprobantes", e);
+            throw Comun.error("No se pudo importar los comprobantes", e);
         }
     }
 
     /* ------------------------------------------------------------------ */
 
-    private String clienteExistente(String cuitCliente) {
-        String cuit = Cuit.normalizar(cuitCliente);
-        if (cuit == null) throw new ServicioException("Primero elegi un cliente.");
-        try {
-            if (!clienteDAO.existe(cuit)) throw new ServicioException("No existe el cliente " + cuit + ".");
-        } catch (SQLException e) {
-            throw ClienteServiceImpl.error("No se pudo verificar el cliente", e);
-        }
-        return cuit;
+    /** Ventas -> padron de clientes del cliente; compras -> padron de proveedores. */
+    private void registrarContraparte(String cuitCliente, Comprobante c) throws SQLException {
+        ContraparteDAO.Tipo tipo = c.operacion == Operacion.VENTA
+                ? ContraparteDAO.Tipo.CLIENTE : ContraparteDAO.Tipo.PROVEEDOR;
+        contraparteDAO.insertarSiNoExiste(cuitCliente, tipo, new Contraparte(c.cuitContraparte, c.razonSocial));
     }
 
     /** Valida y normaliza el comprobante (CUIT con guiones, importes nulos a cero, textos recortados). */

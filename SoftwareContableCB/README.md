@@ -27,7 +27,7 @@ $env:JAVA_HOME = "C:\Program Files\Java\jdk-25.0.3"
 
 | Modo | Cómo | Qué hace |
 |---|---|---|
-| **Real** (por defecto) | Run normal | Clientes y comprobantes se guardan en SQLite. Lo demás sigue en el mock (ver §3). |
+| **Real** (por defecto) | Run normal | Todo se guarda en SQLite. |
 | **Demo** | agregar `-Dcontabilidad.demo=true` a la VM | Todo en memoria con datos de ejemplo. Útil para mostrar pantallas o trabajar en el front sin base. |
 
 En NetBeans: *Properties → Run → VM Options*.
@@ -64,8 +64,8 @@ se escribe una clase que implemente su interfaz y se la conecta en [`view/App.ja
 | Paquete | Contenido |
 |---|---|
 | `config` | `Conexion`: abre la base, crea/migra el esquema, `enTransaccion(...)`. |
-| `dao` | `ClienteDAO`, `ComprobanteDAO` y el ayudante interno `Sql`. |
-| `service` | `ClienteServiceImpl`, `ComprobanteServiceImpl`, `LectorCsvComprobantes`. |
+| `dao` | `ClienteDAO`, `ComprobanteDAO`, `PercepcionDAO`, `ContraparteDAO` y el ayudante interno `Sql`. |
+| `service` | Una implementación por interfaz de `Servicios` (`*ServiceImpl`), los lectores CSV y el ayudante interno `Comun`. |
 | `util` | `Cuit.normalizar(...)`. |
 | `view` | Ventana, diálogos, `Modelos` (el modelo de datos), `Servicios` (las interfaces), `ServiciosMock`. |
 | `view.paneles` | Una pantalla por sección del menú. |
@@ -94,15 +94,14 @@ no tenía punto de venta ni número, ni el detalle de IVA por alícuota.
 
 | Módulo (interfaz) | Implementación | Estado |
 |---|---|---|
-| `ClienteService` | `service.ClienteServiceImpl` | ✅ Real (SQLite) |
-| `ComprobanteService` | `service.ComprobanteServiceImpl` | ✅ Real (SQLite). Importación: solo CSV |
-| `PercepcionService` | `ServiciosMock` (híbrido) | ⏳ En memoria, **se pierde al cerrar** |
-| `ContraparteService` (clientes del cliente / proveedores) | `ServiciosMock` (híbrido) | ⏳ En memoria, **se pierde al cerrar** |
-| `ImpuestoService` | `ServiciosMock` (híbrido) | ⚠️ Calcula sobre los comprobantes **reales**. IVA razonable; Ganancias y SUSS son fórmulas de ejemplo |
-| `ReporteService` | `ServiciosMock` (híbrido) | ✅ Calcula sobre los comprobantes **reales** |
+| `ClienteService` | `service.ClienteServiceImpl` | ✅ Real |
+| `ComprobanteService` | `service.ComprobanteServiceImpl` | ✅ Real. Importación: solo CSV |
+| `PercepcionService` | `service.PercepcionServiceImpl` | ✅ Real. Importación: solo CSV |
+| `ContraparteService` (clientes del cliente / proveedores) | `service.ContraparteServiceImpl` | ✅ Real, un padrón por cliente |
+| `ImpuestoService` | `service.ImpuestoServiceImpl` | ⚠️ IVA real. **Ganancias y SUSS son fórmulas provisorias** (ver §8) |
+| `ReporteService` | `service.ReporteServiceImpl` | ✅ Real |
 
-**Modo híbrido del mock:** `new ServiciosMock(clientesReales, comprobantesReales)` no carga datos de ejemplo
-y toma clientes y comprobantes de los services reales. Así impuestos y reportes muestran los números de la base.
+`ServiciosMock` se usa únicamente en el modo demo.
 
 ### Reglas de negocio implementadas
 
@@ -111,7 +110,8 @@ y toma clientes y comprobantes de los services reales. Así impuestos y reportes
   *No se valida todavía el dígito verificador.*
 - La razón social es obligatoria.
 - No se puede dar de alta un CUIT repetido.
-- **No se puede dar de baja un cliente que tiene comprobantes** (para no borrar historia contable por error).
+- **No se puede dar de baja un cliente que tiene comprobantes o percepciones/retenciones** (para no borrar
+  historia contable por error). Su padrón de clientes y proveedores sí se borra con él.
 - Actividades: lista ordenada de código + descripción (tabla `actividad`).
 - Impuestos activos: texto separado por comas, como pide el requerimiento (`"IVA, Ganancias, SUSS"`).
 - La búsqueda ignora mayúsculas y busca en razón social, nombre de fantasía y CUIT.
@@ -123,6 +123,37 @@ y toma clientes y comprobantes de los services reales. Así impuestos y reportes
   operación + tipo + punto de venta + número + CUIT de la contraparte.
 - La lista por período incluye del día 1 al último día del mes.
 - Las notas de crédito restan en IVA y reportes (lógica de `Modelos.Comprobante.signo()`).
+- **Al cargar o importar un comprobante, la contraparte se agrega sola al padrón del cliente**
+  (venta → clientes del cliente, compra → proveedores). Si ya estaba, no se pisa su razón social.
+
+**Padrón de clientes y proveedores** (`ContraparteServiceImpl`)
+- **Cada cliente de la contadora tiene su propio padrón.** Si dos clientes comparten un proveedor, se
+  carga en cada uno. Editarlo o borrarlo en uno no afecta al otro.
+- Clientes del cliente y proveedores son listas separadas: un mismo CUIT puede estar en las dos.
+- No se repite un CUIT dentro de la misma lista. Al editar se puede corregir el CUIT.
+- Quitar a alguien del padrón no toca los comprobantes ya cargados (guardan su propio CUIT y razón social).
+
+**Percepciones y retenciones** (`PercepcionServiceImpl`)
+- Obligatorios: clase, tributo, fecha, CUIT del agente (11 dígitos) e importe mayor a cero.
+- Las de IVA se descuentan en la posición de IVA del mes; las de Ganancias van como ingresos a cuenta.
+- Importación CSV (`LectorCsvPercepciones`), con las mismas reglas que la de comprobantes:
+  ```
+  fecha;clase;tributo;regimen;jurisdiccion;comprobante;cuitAgente;razonSocialAgente;importe
+  05/10/2026;Percepcion;IVA;RG 2408;Nacional;FA 0003-1;30-50001122-7;Papelera del Centro S.A.;1.500,00
+  2026-10-07;R;Ganancias;RG 830;Nacional;OP 55;30719988774;Combustibles Cuyanos;200
+  ```
+  `clase`: Percepcion / Retencion (o P / R, con o sin acento). `tributo`: IVA, Ganancias, SUSS, IIBB o "Ingresos Brutos".
+  Al reimportar, los movimientos idénticos (misma fecha, clase, tributo, agente, comprobante e importe) se saltean.
+
+**Impuestos y reportes** (`ImpuestoServiceImpl`, `ReporteServiceImpl`)
+- **IVA:** débito fiscal − crédito fiscal (notas de crédito restan) − percepciones − retenciones de IVA.
+  El saldo a favor del mes anterior **todavía no se arrastra** (queda en 0).
+- **Ganancias (provisorio):** 35% sobre (neto ventas − neto compras) del mes, menos las percepciones/retenciones
+  de Ganancias. Si el mes da pérdida, el impuesto es 0 (el mock calculaba un impuesto negativo).
+- **SUSS (provisorio, solo si el cliente tiene empleados):** nómina estimada en el 12% de las ventas;
+  contribuciones 24% y aportes 17%.
+- Las constantes provisorias están juntas al principio de `ImpuestoServiceImpl` para cambiarlas fácil.
+- Reportes: una fila por mes del rango, aunque el mes no tenga movimientos, con una sola consulta a la base.
 
 **Importación CSV** (`LectorCsvComprobantes`)
 ```
@@ -143,9 +174,10 @@ fecha;tipo;ptoVenta;numero;cuit;razonSocial;neto;iva[;percepciones]
 
 ## 4. Base de datos
 
-Esquema versión **1** (`PRAGMA user_version`). Ver `Conexion.crearEsquemaV1`.
+Esquema versión **2** (`PRAGMA user_version`). Ver `Conexion.crearEsquemaV1` y `crearEsquemaV2`.
 
 ```
+-- v1
 cliente      (cuit PK, razonSocial, nombreFantasia, direccion, impuestosActivos, tieneEmpleados 0/1)
 actividad    (id PK, clienteCuit FK→cliente ON DELETE CASCADE, orden, codigo, nombre)
 comprobante  (id PK, clienteCuit FK→cliente ON DELETE RESTRICT, operacion VENTA|COMPRA,
@@ -153,6 +185,12 @@ comprobante  (id PK, clienteCuit FK→cliente ON DELETE RESTRICT, operacion VENT
               neto21, iva21, neto105, iva105, neto27, iva27, noGravado, exento,
               percepciones, otrosTributos, origen,
               UNIQUE(clienteCuit, operacion, tipo, puntoVenta, numero, cuitContraparte))
+-- v2
+percepcion_retencion (id PK, clienteCuit FK→cliente ON DELETE RESTRICT, clase PERCEPCION|RETENCION,
+              tributo IVA|GANANCIAS|SUSS|IIBB, fecha, regimen, jurisdiccion, comprobante,
+              cuitAgente, razonSocialAgente, importe, origen)
+contraparte  (clienteCuit FK→cliente ON DELETE CASCADE, tipo CLIENTE|PROVEEDOR, cuit, razonSocial,
+              PK(clienteCuit, tipo, cuit))      -- un padrón por cliente
 ```
 
 - **Importes como TEXT** con el valor exacto del `BigDecimal` (`"1234.56"`). SQLite no tiene tipo decimal
@@ -179,10 +217,12 @@ Cada test usa una base SQLite temporal propia y **nunca toca la base real**
 
 | Clase | Qué cubre |
 |---|---|
-| `config.ConexionTest` | Regresión del cierre de conexión, reapertura, esquema y FKs, migración desde el prototipo, rollback de transacciones |
+| `config.ConexionTest` | Regresión del cierre de conexión, reapertura, esquema y FKs, migraciones (prototipo → v2 y v1 → v2), rollback de transacciones |
 | `service.ClienteServiceImplTest` | ABM completo, actividades e impuestos, CUIT, duplicados, filtros, baja con comprobantes |
-| `service.ComprobanteServiceImplTest` | Alta/edición/baja, exactitud de importes, filtros por período/operación/texto, duplicados, CSV (formatos, codificación, errores por línea, reimportación) |
-| `view.ModoHibridoTest` | IVA y reportes calculados sobre los comprobantes reales |
+| `service.ComprobanteServiceImplTest` | Alta/edición/baja, exactitud de importes, filtros por período/operación/texto, duplicados, CSV (formatos, codificación, errores por línea, reimportación), alta automática en el padrón |
+| `service.PercepcionServiceImplTest` | Alta/edición/baja, persistencia, filtros, validaciones, CSV y reimportación |
+| `service.ContraparteServiceImplTest` | Un padrón por cliente, listas separadas, CUIT repetido, cambio de CUIT, filtros |
+| `service.ImpuestoYReporteServiceTest` | Posición de IVA, Ganancias y SUSS provisorios, totales por mes |
 | `view.DialogoClienteTest` | Regresión del formulario de cliente (los 4 campos están en pantalla) |
 
 ### Problema conocido al compilar desde la terminal en esta PC
@@ -199,6 +239,16 @@ Cada test usa una base SQLite temporal propia y **nunca toca la base real**
 
 ## 6. Historial de cambios
 
+### Backend completo: percepciones, impuestos, reportes y padrones
+- `PercepcionServiceImpl` con importación CSV (`LectorCsvPercepciones`): las percepciones ya no se pierden al cerrar.
+- `ImpuestoServiceImpl` y `ReporteServiceImpl`: los cálculos salieron del mock y pasaron al backend.
+  Ganancias ya no da impuesto negativo cuando el mes tiene pérdida.
+- `ContraparteServiceImpl`: un padrón de clientes y proveedores por cada cliente. Los comprobantes cargan
+  sus contrapartes al padrón automáticamente.
+- Esquema v2 (tablas `percepcion_retencion` y `contraparte`) con migración automática desde la v1.
+- La baja de un cliente también se bloquea si tiene percepciones/retenciones.
+- `App` usa solo services reales. `ServiciosMock` volvió a su versión original y se usa solo en modo demo.
+
 ### Backend real de clientes y comprobantes
 - **Bug:** los DAOs cerraban la conexión compartida y la segunda operación fallaba con
   *"database connection closed"*. Ahora no la cierran, y si se cerrara `getConexion()` la reabre.
@@ -209,19 +259,24 @@ Cada test usa una base SQLite temporal propia y **nunca toca la base real**
 - Nuevo esquema versionado con migración automática desde la base del prototipo.
 - `ClienteServiceImpl` y `ComprobanteServiceImpl` sobre SQLite, más el importador CSV.
 - `App` usa el backend real por defecto, y el mock completo con `-Dcontabilidad.demo=true`.
-- `ServiciosMock` tiene un modo híbrido para que impuestos y reportes usen los datos reales.
+- `ServiciosMock` tenía un modo híbrido para que impuestos y reportes usaran los datos reales
+  (se quitó en el cambio siguiente, cuando todo pasó al backend).
 - `pom.xml`: clase principal `view.App`, JUnit 5 y surefire.
 
 ---
 
 ## 7. Próximos pasos sugeridos
-1. `PercepcionService` real (tabla `percepcion_retencion`). Es lo más urgente: hoy se pierde al cerrar.
-2. `ContraparteService` real. Antes hay que decidir con la clienta si un proveedor se comparte entre clientes
-   o cada cliente tiene su lista.
-3. Pasar los cálculos de impuestos y reportes al backend (`service.ImpuestoServiceImpl`), confirmando con la
-   contadora las fórmulas de Ganancias y SUSS y el arrastre del saldo a favor de IVA.
-4. Importación desde el formato real de ARCA ("Mis Comprobantes"): pedir archivos de ejemplo. Para Excel y
-   PDF hacen falta Apache POI y PDFBox.
-5. Validar el dígito verificador del CUIT.
-6. Mover `view.Modelos` a un paquete `model`.
-7. Borrar `FrPrincipal` y `FrClientes`: son restos del editor visual y no se usan.
+1. Reemplazar las fórmulas provisorias de impuestos con lo que defina la contadora (ver §8).
+2. Importación desde el formato real de ARCA ("Mis Comprobantes" y percepciones): pedir archivos de ejemplo.
+   Para Excel y PDF hacen falta Apache POI y PDFBox.
+3. Validar el dígito verificador del CUIT.
+4. Mover `view.Modelos` a un paquete `model`.
+5. Borrar `FrPrincipal` y `FrClientes`: son restos del editor visual y no se usan.
+
+## 8. Pendientes para definir con la contadora
+- **Ganancias:** ¿qué necesita ver? ¿Anticipos, DDJJ anual, un estimado? ¿Sus clientes son personas humanas
+  (escala progresiva) o sociedades?
+- **SUSS:** ¿de dónde sale la nómina real (F.931)? ¿Las retenciones de SUSS sufridas se toman a cuenta?
+- **IVA:** ¿se arrastra automáticamente el saldo a favor del mes anterior?
+- **Ingresos Brutos:** ¿lo quiere calcular? Hoy se pueden cargar percepciones de IIBB, pero no hay cálculo.
+- **Importación:** ejemplos reales de los archivos que baja de ARCA.

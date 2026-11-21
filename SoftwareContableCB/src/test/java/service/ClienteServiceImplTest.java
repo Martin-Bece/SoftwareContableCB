@@ -143,4 +143,23 @@ class ClienteServiceImplTest extends ConBaseTemporal {
         assertTrue(ex.getMessage().contains("1 comprobantes"), ex.getMessage());
         assertNotNull(servicio.buscarPorCuit("30-71234567-9"));
     }
+
+    @Test
+    void noPermiteBajaSiTienePercepciones() {
+        servicio.alta(clienteCompleto());
+        new PercepcionServiceImpl().guardarPercepcion("30-71234567-9",
+                PercepcionServiceImplTest.percepcion(LocalDate.of(2026, 10, 5), "100"));
+        ServicioException ex = assertThrows(ServicioException.class, () -> servicio.baja("30-71234567-9"));
+        assertTrue(ex.getMessage().contains("percepciones"), ex.getMessage());
+    }
+
+    @Test
+    void laBajaBorraSuPadronDeContrapartes() {
+        servicio.alta(clienteCompleto());
+        ContraparteServiceImpl padron = new ContraparteServiceImpl();
+        padron.guardarProveedor("30-71234567-9", new view.Modelos.Contraparte("30-50001122-7", "Papelera"), null);
+        servicio.baja("30-71234567-9");
+        servicio.alta(clienteCompleto());
+        assertTrue(padron.listarProveedores("30-71234567-9", null).isEmpty());
+    }
 }

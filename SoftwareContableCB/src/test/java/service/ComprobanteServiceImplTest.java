@@ -201,6 +201,34 @@ class ComprobanteServiceImplTest extends ConBaseTemporal {
     }
 
     @Test
+    void lasContrapartesDeLosComprobantesSeAgreganAlPadron() {
+        ContraparteServiceImpl padron = new ContraparteServiceImpl();
+        padron.guardarClienteDeCliente(CUIT, new view.Modelos.Contraparte("30-65478912-3", "Nombre cargado a mano"), null);
+
+        servicio.guardarComprobante(CUIT, factura(Operacion.VENTA, LocalDate.of(2026, 10, 1), "1", "100"));
+        Comprobante compra = factura(Operacion.COMPRA, LocalDate.of(2026, 10, 1), "2", "100");
+        compra.cuitContraparte = "30-50001122-7";
+        compra.razonSocial = "Papelera del Centro S.A.";
+        servicio.importarComprobantes(CUIT, List.of(compra));
+
+        var clientes = padron.listarClientesDeCliente(CUIT, null);
+        assertEquals(1, clientes.size());
+        assertEquals("Nombre cargado a mano", clientes.get(0).razonSocial, "no pisa el nombre que ya estaba");
+        var proveedores = padron.listarProveedores(CUIT, null);
+        assertEquals(1, proveedores.size(), "las compras van al padron de proveedores");
+        assertEquals("Papelera del Centro S.A.", proveedores.get(0).razonSocial);
+    }
+
+    @Test
+    void unDuplicadoNoDejaNadaAMedias() {
+        servicio.guardarComprobante(CUIT, factura(Operacion.VENTA, LocalDate.of(2026, 10, 1), "1", "100"));
+        Comprobante nuevo = factura(Operacion.VENTA, LocalDate.of(2026, 10, 1), "1", "100");
+        assertThrows(ServicioException.class, () -> servicio.guardarComprobante(CUIT, nuevo));
+        assertNull(nuevo.id);
+        assertEquals(1, servicio.listarComprobantes(CUIT, null, null, null).size());
+    }
+
+    @Test
     void importacionInvalidaNoGuardaNada() {
         Comprobante bueno = factura(Operacion.VENTA, LocalDate.of(2026, 10, 1), "1", "100");
         Comprobante malo = factura(Operacion.VENTA, LocalDate.of(2026, 10, 2), "2", "100");

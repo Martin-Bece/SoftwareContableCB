@@ -83,7 +83,7 @@ public class LectorCsvComprobantes {
         return c;
     }
 
-    private static LocalDate fecha(String texto, int nro) {
+    static LocalDate fecha(String texto, int nro) {
         String t = texto.trim();
         try {
             return t.contains("/") ? LocalDate.parse(t, DD_MM_AAAA) : LocalDate.parse(t);
@@ -108,7 +108,7 @@ public class LectorCsvComprobantes {
         }
     }
 
-    private static List<String> leerLineas(File archivo) {
+    static List<String> leerLineas(File archivo) {
         try {
             return leerCon(archivo, StandardCharsets.UTF_8);
         } catch (CharacterCodingException e) {

@@ -32,7 +32,7 @@ public final class Conexion {
     public static final String PROPIEDAD_RUTA = "contabilidad.db";
 
     /** Version actual del esquema. */
-    public static final int VERSION_ESQUEMA = 1;
+    public static final int VERSION_ESQUEMA = 2;
 
     private static Connection conexion;
 
@@ -140,6 +140,9 @@ public final class Conexion {
                 apartarTablasPrototipo(c);
                 crearEsquemaV1(st);
             }
+            if (desde < 2) {
+                crearEsquemaV2(st);
+            }
             st.execute("PRAGMA user_version = " + VERSION_ESQUEMA);
             c.commit();
         } catch (SQLException e) {
@@ -229,6 +232,37 @@ public final class Conexion {
             )
             """);
         st.execute("CREATE INDEX idx_comprobante_periodo ON comprobante(clienteCuit, operacion, fecha)");
+    }
+
+    /** v2: percepciones/retenciones sufridas y padron de contrapartes de cada cliente. */
+    private static void crearEsquemaV2(Statement st) throws SQLException {
+        st.execute("""
+            CREATE TABLE percepcion_retencion (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                clienteCuit       TEXT NOT NULL REFERENCES cliente(cuit) ON DELETE RESTRICT,
+                clase             TEXT NOT NULL CHECK (clase IN ('PERCEPCION', 'RETENCION')),
+                tributo           TEXT NOT NULL,     -- IVA | GANANCIAS | SUSS | IIBB (enum Modelos.Tributo)
+                fecha             TEXT NOT NULL,     -- ISO yyyy-MM-dd
+                regimen           TEXT NOT NULL DEFAULT '',
+                jurisdiccion      TEXT NOT NULL DEFAULT '',
+                comprobante       TEXT NOT NULL DEFAULT '',
+                cuitAgente        TEXT NOT NULL,
+                razonSocialAgente TEXT NOT NULL DEFAULT '',
+                importe           TEXT NOT NULL,     -- BigDecimal exacto, igual que en comprobante
+                origen            TEXT NOT NULL DEFAULT 'Manual'
+            )
+            """);
+        st.execute("CREATE INDEX idx_percepcion_periodo ON percepcion_retencion(clienteCuit, fecha)");
+        // Cada cliente tiene SU padron: si dos clientes comparten un proveedor, aparece una vez en cada uno.
+        st.execute("""
+            CREATE TABLE contraparte (
+                clienteCuit TEXT NOT NULL REFERENCES cliente(cuit) ON DELETE CASCADE,
+                tipo        TEXT NOT NULL CHECK (tipo IN ('CLIENTE', 'PROVEEDOR')),
+                cuit        TEXT NOT NULL,
+                razonSocial TEXT NOT NULL,
+                PRIMARY KEY (clienteCuit, tipo, cuit)
+            )
+            """);
     }
 
     private static boolean existeTabla(Connection c, String tabla) throws SQLException {

@@ -17,6 +17,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ConexionTest extends ConBaseTemporal {
 
+    private static final Set<String> TABLAS =
+            Set.of("cliente", "actividad", "comprobante", "percepcion_retencion", "contraparte");
+
     /** Regresion del bug original: el DAO cerraba la conexion compartida y la segunda operacion fallaba. */
     @Test
     void laConexionSigueAbiertaDespuesDeUsarLosDaos() throws Exception {
@@ -40,7 +43,7 @@ class ConexionTest extends ConBaseTemporal {
     @Test
     void creaElEsquemaYLaVersion() throws Exception {
         Connection c = Conexion.getConexion();
-        assertEquals(Set.of("cliente", "actividad", "comprobante"), tablas(c));
+        assertEquals(TABLAS, tablas(c));
         assertEquals(Conexion.VERSION_ESQUEMA, version(c));
         try (Statement st = c.createStatement(); ResultSet rs = st.executeQuery("PRAGMA foreign_keys")) {
             assertTrue(rs.next());
@@ -59,8 +62,28 @@ class ConexionTest extends ConBaseTemporal {
     void borraLasTablasVaciasDelPrototipo() throws Exception {
         crearBasePrototipo(false);
         Connection c = Conexion.getConexion();
-        assertEquals(Set.of("cliente", "actividad", "comprobante"), tablas(c));
+        assertEquals(TABLAS, tablas(c));
         assertEquals(Conexion.VERSION_ESQUEMA, version(c));
+    }
+
+    /** Una base creada con la version 1 (ya publicada) pasa a la 2 sin perder clientes ni comprobantes. */
+    @Test
+    void migraDeLaVersion1ALa2ConservandoDatos() throws Exception {
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + archivoBase);
+             Statement st = c.createStatement()) {
+            st.execute("CREATE TABLE cliente (cuit TEXT PRIMARY KEY, razonSocial TEXT NOT NULL,"
+                    + " nombreFantasia TEXT NOT NULL DEFAULT '', direccion TEXT NOT NULL DEFAULT '',"
+                    + " impuestosActivos TEXT NOT NULL DEFAULT '', tieneEmpleados INTEGER NOT NULL DEFAULT 0)");
+            st.execute("CREATE TABLE actividad (id INTEGER PRIMARY KEY AUTOINCREMENT, clienteCuit TEXT NOT NULL,"
+                    + " orden INTEGER NOT NULL, codigo TEXT NOT NULL DEFAULT '', nombre TEXT NOT NULL)");
+            st.execute("CREATE TABLE comprobante (id INTEGER PRIMARY KEY AUTOINCREMENT, clienteCuit TEXT NOT NULL)");
+            st.execute("INSERT INTO cliente (cuit, razonSocial) VALUES ('30-11111111-1', 'De la v1')");
+            st.execute("PRAGMA user_version = 1");
+        }
+        Connection c = Conexion.getConexion();
+        assertEquals(TABLAS, tablas(c));
+        assertEquals(Conexion.VERSION_ESQUEMA, version(c));
+        assertEquals("De la v1", new ClienteDAO().buscarPorCuit("30-11111111-1").getRazonSocial());
     }
 
     @Test

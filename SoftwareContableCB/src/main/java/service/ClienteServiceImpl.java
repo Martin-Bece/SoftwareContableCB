@@ -2,6 +2,7 @@ package service;
 
 import dao.ClienteDAO;
 import dao.ComprobanteDAO;
+import dao.PercepcionDAO;
 import util.Cuit;
 import view.Modelos.Cliente;
 import view.Servicios.ClienteService;
@@ -20,14 +21,16 @@ public class ClienteServiceImpl implements ClienteService {
 
     private final ClienteDAO clienteDAO;
     private final ComprobanteDAO comprobanteDAO;
+    private final PercepcionDAO percepcionDAO;
 
     public ClienteServiceImpl() {
-        this(new ClienteDAO(), new ComprobanteDAO());
+        this(new ClienteDAO(), new ComprobanteDAO(), new PercepcionDAO());
     }
 
-    public ClienteServiceImpl(ClienteDAO clienteDAO, ComprobanteDAO comprobanteDAO) {
+    public ClienteServiceImpl(ClienteDAO clienteDAO, ComprobanteDAO comprobanteDAO, PercepcionDAO percepcionDAO) {
         this.clienteDAO = clienteDAO;
         this.comprobanteDAO = comprobanteDAO;
+        this.percepcionDAO = percepcionDAO;
     }
 
     @Override
@@ -35,7 +38,7 @@ public class ClienteServiceImpl implements ClienteService {
         try {
             return clienteDAO.listar(filtro);
         } catch (SQLException e) {
-            throw error("No se pudo listar los clientes", e);
+            throw Comun.error("No se pudo listar los clientes", e);
         }
     }
 
@@ -46,7 +49,7 @@ public class ClienteServiceImpl implements ClienteService {
         try {
             return clienteDAO.buscarPorCuit(normalizado);
         } catch (SQLException e) {
-            throw error("No se pudo buscar el cliente", e);
+            throw Comun.error("No se pudo buscar el cliente", e);
         }
     }
 
@@ -59,7 +62,7 @@ public class ClienteServiceImpl implements ClienteService {
             }
             clienteDAO.insertar(cliente);
         } catch (SQLException e) {
-            throw error("No se pudo dar de alta el cliente", e);
+            throw Comun.error("No se pudo dar de alta el cliente", e);
         }
     }
 
@@ -71,13 +74,14 @@ public class ClienteServiceImpl implements ClienteService {
                 throw new ServicioException("No existe el cliente " + cliente.getCuit() + ".");
             }
         } catch (SQLException e) {
-            throw error("No se pudo modificar el cliente", e);
+            throw Comun.error("No se pudo modificar el cliente", e);
         }
     }
 
     /**
-     * Da de baja al cliente. Igual que el mock, no se permite si tiene comprobantes:
-     * en un sistema contable no queremos borrar historia por accidente.
+     * Da de baja al cliente. Igual que el mock, no se permite si tiene comprobantes
+     * (ni percepciones/retenciones): en un sistema contable no queremos borrar historia por accidente.
+     * Su padron de clientes y proveedores se borra junto con el.
      */
     @Override
     public void baja(String cuit) {
@@ -89,11 +93,16 @@ public class ClienteServiceImpl implements ClienteService {
                 throw new ServicioException("El cliente tiene " + cantidad
                         + " comprobantes cargados. Archivalos antes de darlo de baja.");
             }
+            int movimientos = percepcionDAO.contarPorCliente(normalizado);
+            if (movimientos > 0) {
+                throw new ServicioException("El cliente tiene " + movimientos
+                        + " percepciones/retenciones cargadas. Archivalas antes de darlo de baja.");
+            }
             if (!clienteDAO.eliminar(normalizado)) {
                 throw new ServicioException("No existe el cliente " + normalizado + ".");
             }
         } catch (SQLException e) {
-            throw error("No se pudo dar de baja el cliente", e);
+            throw Comun.error("No se pudo dar de baja el cliente", e);
         }
     }
 
@@ -111,9 +120,5 @@ public class ClienteServiceImpl implements ClienteService {
             throw new ServicioException("La razon social es obligatoria.");
         }
         c.setRazonSocial(c.getRazonSocial().trim());
-    }
-
-    static ServicioException error(String accion, SQLException e) {
-        return new ServicioException(accion + ": " + e.getMessage(), e);
     }
 }

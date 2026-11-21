@@ -4,6 +4,7 @@ import config.Conexion;
 import dao.ClienteDAO;
 import dao.ComprobanteDAO;
 import dao.ContraparteDAO;
+import service.importacion.LectorComprobantes;
 import util.Cuit;
 import view.Modelos;
 import view.Modelos.Comprobante;
@@ -20,25 +21,25 @@ import java.util.List;
 
 /**
  * Implementacion real de {@link ComprobanteService} sobre SQLite
- * (ventas y compras de cada cliente, carga manual e importacion CSV).
+ * (ventas y compras de cada cliente, carga manual e importacion CSV o Excel).
  */
 public class ComprobanteServiceImpl implements ComprobanteService {
 
     private final ComprobanteDAO comprobanteDAO;
     private final ClienteDAO clienteDAO;
     private final ContraparteDAO contraparteDAO;
-    private final LectorCsvComprobantes lectorCsv;
+    private final LectorComprobantes lector;
 
     public ComprobanteServiceImpl() {
-        this(new ComprobanteDAO(), new ClienteDAO(), new ContraparteDAO(), new LectorCsvComprobantes());
+        this(new ComprobanteDAO(), new ClienteDAO(), new ContraparteDAO(), new LectorComprobantes());
     }
 
     public ComprobanteServiceImpl(ComprobanteDAO comprobanteDAO, ClienteDAO clienteDAO,
-                                  ContraparteDAO contraparteDAO, LectorCsvComprobantes lectorCsv) {
+                                  ContraparteDAO contraparteDAO, LectorComprobantes lector) {
         this.comprobanteDAO = comprobanteDAO;
         this.clienteDAO = clienteDAO;
         this.contraparteDAO = contraparteDAO;
-        this.lectorCsv = lectorCsv;
+        this.lector = lector;
     }
 
     /**
@@ -105,17 +106,12 @@ public class ComprobanteServiceImpl implements ComprobanteService {
         if (archivo == null || !archivo.isFile()) {
             throw new ServicioException("No se encontro el archivo.");
         }
-        String nombre = archivo.getName().toLowerCase();
-        if (nombre.endsWith(".csv") || nombre.endsWith(".txt")) {
-            return lectorCsv.leer(archivo, operacion);
+        if (LectorComprobantes.soporta(archivo)) {
+            return lector.leer(archivo, operacion); // CSV, .xlsx o .xls
         }
-        if (nombre.endsWith(".xls") || nombre.endsWith(".xlsx")) {
-            throw new ServicioException("La importacion desde Excel todavia no esta disponible. "
-                    + "Guarda el archivo como CSV desde Excel y volve a intentar.");
-        }
-        if (nombre.endsWith(".pdf")) {
+        if (archivo.getName().toLowerCase().endsWith(".pdf")) {
             throw new ServicioException("La importacion desde PDF todavia no esta disponible. "
-                    + "Por ahora carga esos comprobantes a mano o desde un CSV.");
+                    + "Por ahora carga esos comprobantes a mano o desde un Excel o CSV.");
         }
         throw new ServicioException("Formato de archivo no soportado: " + archivo.getName());
     }

@@ -3,6 +3,7 @@ package service;
 import config.Conexion;
 import dao.ClienteDAO;
 import dao.PercepcionDAO;
+import service.importacion.LectorPercepciones;
 import util.Cuit;
 import view.Modelos.Clase;
 import view.Modelos.PercepcionRetencion;
@@ -21,16 +22,16 @@ public class PercepcionServiceImpl implements PercepcionService {
 
     private final PercepcionDAO percepcionDAO;
     private final ClienteDAO clienteDAO;
-    private final LectorCsvPercepciones lectorCsv;
+    private final LectorPercepciones lector;
 
     public PercepcionServiceImpl() {
-        this(new PercepcionDAO(), new ClienteDAO(), new LectorCsvPercepciones());
+        this(new PercepcionDAO(), new ClienteDAO(), new LectorPercepciones());
     }
 
-    public PercepcionServiceImpl(PercepcionDAO percepcionDAO, ClienteDAO clienteDAO, LectorCsvPercepciones lectorCsv) {
+    public PercepcionServiceImpl(PercepcionDAO percepcionDAO, ClienteDAO clienteDAO, LectorPercepciones lector) {
         this.percepcionDAO = percepcionDAO;
         this.clienteDAO = clienteDAO;
-        this.lectorCsv = lectorCsv;
+        this.lector = lector;
     }
 
     /** Cualquier filtro en {@code null} = todos. Sin cliente activo devuelve una lista vacia. */
@@ -80,15 +81,10 @@ public class PercepcionServiceImpl implements PercepcionService {
     @Override
     public List<PercepcionRetencion> previsualizarPercepciones(File archivo) {
         if (archivo == null || !archivo.isFile()) throw new ServicioException("No se encontro el archivo.");
-        String nombre = archivo.getName().toLowerCase();
-        if (nombre.endsWith(".csv") || nombre.endsWith(".txt")) return lectorCsv.leer(archivo);
-        if (nombre.endsWith(".xls") || nombre.endsWith(".xlsx")) {
-            throw new ServicioException("La importacion desde Excel todavia no esta disponible. "
-                    + "Guarda el archivo como CSV desde Excel y volve a intentar.");
-        }
-        if (nombre.endsWith(".pdf")) {
+        if (LectorPercepciones.soporta(archivo)) return lector.leer(archivo); // CSV, .xlsx o .xls
+        if (archivo.getName().toLowerCase().endsWith(".pdf")) {
             throw new ServicioException("La importacion desde PDF todavia no esta disponible. "
-                    + "Por ahora carga esos movimientos a mano o desde un CSV.");
+                    + "Por ahora carga esos movimientos a mano o desde un Excel o CSV.");
         }
         throw new ServicioException("Formato de archivo no soportado: " + archivo.getName());
     }

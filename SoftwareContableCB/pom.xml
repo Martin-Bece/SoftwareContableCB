@@ -27,6 +27,13 @@
             <version>3.4</version>
         </dependency>
 
+        <!-- Apache POI: lectura de Excel (.xlsx y .xls) para importar comprobantes y percepciones -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
         <!-- Tests (src/test/java). Se corren con: mvn test -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -43,7 +50,8 @@
                 <version>3.2.5</version>
                 <configuration>
                     <!-- SQLite carga una libreria nativa; evita el aviso de "restricted method" en Java 24+ -->
-                    <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+                    <!-- y el segundo evita el aviso de log4j que genera Apache POI (ver view.App) -->
+                    <argLine>--enable-native-access=ALL-UNNAMED -Dlog4j2.loggerContextFactory=org.apache.logging.log4j.simple.SimpleLoggerContextFactory</argLine>
                 </configuration>
             </plugin>
         </plugins>

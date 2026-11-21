@@ -22,8 +22,14 @@ import java.sql.SQLException;
 public class App {
 
     public static final String PROPIEDAD_DEMO = "contabilidad.demo";
+    private static final String PROPIEDAD_LOG4J = "log4j2.loggerContextFactory";
 
     public static void main(String[] args) {
+        // Apache POI (Excel) usa log4j-api sin implementacion: esto evita el aviso
+        // "ERROR StatusLogger Log4j2 could not find a logging implementation" en la consola.
+        if (System.getProperty(PROPIEDAD_LOG4J) == null) {
+            System.setProperty(PROPIEDAD_LOG4J, "org.apache.logging.log4j.simple.SimpleLoggerContextFactory");
+        }
         Theme.aplicarDefaults();
         SwingUtilities.invokeLater(() -> {
             AppContext ctx = Boolean.getBoolean(PROPIEDAD_DEMO) ? contextoDemo() : contextoReal();

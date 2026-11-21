@@ -65,7 +65,8 @@ se escribe una clase que implemente su interfaz y se la conecta en [`view/App.ja
 |---|---|
 | `config` | `Conexion`: abre la base, crea/migra el esquema, `enTransaccion(...)`. |
 | `dao` | `ClienteDAO`, `ComprobanteDAO`, `PercepcionDAO`, `ContraparteDAO` y el ayudante interno `Sql`. |
-| `service` | Una implementación por interfaz de `Servicios` (`*ServiceImpl`), los lectores CSV y el ayudante interno `Comun`. |
+| `service` | Una implementación por interfaz de `Servicios` (`*ServiceImpl`) y el ayudante interno `Comun`. |
+| `service.importacion` | Lectura de archivos CSV y Excel: `LectorComprobantes`, `LectorPercepciones` y sus piezas internas. |
 | `util` | `Cuit.normalizar(...)`. |
 | `view` | Ventana, diálogos, `Modelos` (el modelo de datos), `Servicios` (las interfaces), `ServiciosMock`. |
 | `view.paneles` | Una pantalla por sección del menú. |
@@ -95,8 +96,8 @@ no tenía punto de venta ni número, ni el detalle de IVA por alícuota.
 | Módulo (interfaz) | Implementación | Estado |
 |---|---|---|
 | `ClienteService` | `service.ClienteServiceImpl` | ✅ Real |
-| `ComprobanteService` | `service.ComprobanteServiceImpl` | ✅ Real. Importación: solo CSV |
-| `PercepcionService` | `service.PercepcionServiceImpl` | ✅ Real. Importación: solo CSV |
+| `ComprobanteService` | `service.ComprobanteServiceImpl` | ✅ Real. Importación: CSV y Excel (PDF no) |
+| `PercepcionService` | `service.PercepcionServiceImpl` | ✅ Real. Importación: CSV y Excel (PDF no) |
 | `ContraparteService` (clientes del cliente / proveedores) | `service.ContraparteServiceImpl` | ✅ Real, un padrón por cliente |
 | `ImpuestoService` | `service.ImpuestoServiceImpl` | ⚠️ IVA real. **Ganancias y SUSS son fórmulas provisorias** (ver §8) |
 | `ReporteService` | `service.ReporteServiceImpl` | ✅ Real |
@@ -136,13 +137,15 @@ no tenía punto de venta ni número, ni el detalle de IVA por alícuota.
 **Percepciones y retenciones** (`PercepcionServiceImpl`)
 - Obligatorios: clase, tributo, fecha, CUIT del agente (11 dígitos) e importe mayor a cero.
 - Las de IVA se descuentan en la posición de IVA del mes; las de Ganancias van como ingresos a cuenta.
-- Importación CSV (`LectorCsvPercepciones`), con las mismas reglas que la de comprobantes:
+- Importación CSV o Excel (`LectorPercepciones`), igual que la de comprobantes (ver "Importación de archivos"):
   ```
   fecha;clase;tributo;regimen;jurisdiccion;comprobante;cuitAgente;razonSocialAgente;importe
   05/10/2026;Percepcion;IVA;RG 2408;Nacional;FA 0003-1;30-50001122-7;Papelera del Centro S.A.;1.500,00
   2026-10-07;R;Ganancias;RG 830;Nacional;OP 55;30719988774;Combustibles Cuyanos;200
   ```
   `clase`: Percepcion / Retencion (o P / R, con o sin acento). `tributo`: IVA, Ganancias, SUSS, IIBB o "Ingresos Brutos".
+  Con encabezado, obligatorias: fecha, clase, tributo, cuitAgente (también "cuit agente" o "cuit") e importe
+  (también "monto"). Opcionales: régimen, jurisdicción, comprobante y razón social del agente (también "agente").
   Al reimportar, los movimientos idénticos (misma fecha, clase, tributo, agente, comprobante e importe) se saltean.
 
 **Impuestos y reportes** (`ImpuestoServiceImpl`, `ReporteServiceImpl`)
@@ -155,20 +158,55 @@ no tenía punto de venta ni número, ni el detalle de IVA por alícuota.
 - Las constantes provisorias están juntas al principio de `ImpuestoServiceImpl` para cambiarlas fácil.
 - Reportes: una fila por mes del rango, aunque el mes no tenga movimientos, con una sola consulta a la base.
 
-**Importación CSV** (`LectorCsvComprobantes`)
+### Importación de archivos (CSV y Excel)
+
+Paquete `service.importacion`. Formatos aceptados: **`.csv`, `.txt`, `.xlsx` y `.xls`**.
+PDF todavía no: muestra un mensaje claro (ver §8).
+
+**Cómo funciona** (igual para comprobantes y percepciones):
+1. `LectorFilas` convierte el archivo en filas de celdas, sin interpretarlas todavía.
+   - **CSV:** separador `;` (o `,` si la línea no tiene `;`). UTF-8, o Windows-1252 si el archivo no es UTF-8
+     válido (lo que guarda Excel). No interpreta comillas.
+   - **Excel:** lee **la primera hoja**. Calcula las fórmulas. Las fechas y los números se toman con su tipo
+     de Excel. El texto se toma como se ve en la celda, así que un punto de venta con formato `0000`
+     queda `0001` y un CUIT guardado como número queda bien.
+   - Las filas vacías se ignoran.
+2. `Tabla` decide qué columna es cada dato:
+   - **Con encabezado:** se busca, entre las primeras 10 filas, una que tenga una celda que empiece con "fecha".
+     Cada columna se reconoce **por su nombre**, sin importar mayúsculas, acentos, espacios ni puntos
+     ("Razón Social" = "razonSocial" = "RAZON SOCIAL"). **El orden da igual**, las columnas de más se ignoran
+     y las filas de título que haya arriba del encabezado se saltean.
+   - **Sin encabezado:** las columnas se toman en el orden estándar (abajo).
+   - Si falta una columna obligatoria, avisa cuál falta.
+3. `Registro` convierte cada celda en fecha, importe, CUIT o texto. Si algo está mal, el error dice
+   **dónde**: "Linea 3: ..." en CSV, "Fila 4: ..." (la fila de Excel) en Excel.
+4. `LectorComprobantes` / `LectorPercepciones` arman los objetos. Después, el service muestra la
+   previsualización e importa **todo o nada** (transacción), **salteando lo que ya estaba cargado**.
+
+**Formato de comprobantes** (orden estándar):
 ```
 fecha;tipo;ptoVenta;numero;cuit;razonSocial;neto;iva[;percepciones]
 2026-10-01;Factura A;0001;00000010;30-65478912-3;Supermercados Andinos S.A.;1.234,56;259,26;10,00
 05/10/2026;Factura B;0001;00000011;30711223345;Almacen Don Pedro S.R.L.;$ 1000;210
 ```
-- Separador `;` (o `,` si los importes no usan coma decimal). Fechas `aaaa-mm-dd` o `dd/mm/aaaa`.
-  Importes `1234.56` o `1.234,56`. El encabezado es opcional.
-- Archivos en UTF-8 o Windows-1252 (lo que guarda Excel).
-- Una fila inválida muestra un error que dice **qué línea** falla.
-- Primero se previsualiza y después se importa. La importación es todo o nada (transacción).
-  **Los comprobantes ya cargados se saltean**, así que reimportar el mismo archivo no duplica nada.
-- Limitación: el neto y el IVA del CSV van a la alícuota 21%.
-- Excel y PDF todavía no: muestran un mensaje claro (antes el mock inventaba filas de ejemplo).
+| Campo | Obligatorio | Nombres de columna aceptados |
+|---|---|---|
+| fecha | sí | fecha, fecha emisión, fecha de emisión, fecha comprobante |
+| tipo | sí | tipo, tipo comprobante, tipo de comprobante |
+| ptoVenta | no (vacío → `0001`) | ptoVenta, pto venta, pto vta, punto venta, punto de venta, pv |
+| numero | sí | número, nro, nro comprobante, número comprobante, número desde |
+| cuit | sí | cuit, cuit contraparte, nro doc, nro documento, nro doc emisor/receptor, cuit emisor/receptor |
+| razonSocial | sí | razón social, razón, denominación, denominación emisor/receptor, nombre |
+| neto | sí | neto, neto gravado, imp neto gravado, importe neto gravado |
+| iva | sí | iva, importe iva, imp iva, monto iva |
+| percepciones | no | percepciones, percepción, imp percepciones |
+
+- Fechas `aaaa-mm-dd` o `dd/mm/aaaa` (o fecha de Excel). Importes `1234.56`, `1.234,56` o `$ 1000` (o número
+  de Excel, que se redondea a centavos).
+- Limitación: el neto y el IVA van a la alícuota 21%.
+- Los alias sirven para Excel armados a mano. **El formato real de "Mis Comprobantes" de ARCA hay que
+  confirmarlo con archivos de ejemplo** (ver §8): por ejemplo, ARCA escribe el tipo como "1 - Factura A".
+- Para sumar un nombre de columna nuevo alcanza con agregarlo a la lista `CAMPOS` del lector.
 
 ---
 
@@ -221,6 +259,7 @@ Cada test usa una base SQLite temporal propia y **nunca toca la base real**
 | `service.ClienteServiceImplTest` | ABM completo, actividades e impuestos, CUIT, duplicados, filtros, baja con comprobantes |
 | `service.ComprobanteServiceImplTest` | Alta/edición/baja, exactitud de importes, filtros por período/operación/texto, duplicados, CSV (formatos, codificación, errores por línea, reimportación), alta automática en el padrón |
 | `service.PercepcionServiceImplTest` | Alta/edición/baja, persistencia, filtros, validaciones, CSV y reimportación |
+| `service.ImportacionExcelTest` | Excel `.xlsx` y `.xls` generados en el test: título arriba, columnas desordenadas y con acentos, fechas y fórmulas, formato `0000`, CUIT numérico, errores con número de fila, columnas faltantes, archivo dañado |
 | `service.ContraparteServiceImplTest` | Un padrón por cliente, listas separadas, CUIT repetido, cambio de CUIT, filtros |
 | `service.ImpuestoYReporteServiceTest` | Posición de IVA, Ganancias y SUSS provisorios, totales por mes |
 | `view.DialogoClienteTest` | Regresión del formulario de cliente (los 4 campos están en pantalla) |
@@ -238,6 +277,13 @@ Cada test usa una base SQLite temporal propia y **nunca toca la base real**
 ---
 
 ## 6. Historial de cambios
+
+### Importación desde Excel
+- Comprobantes y percepciones se pueden importar desde `.xlsx` y `.xls` (Apache POI 5.2.5).
+- Lectores unificados en `service.importacion`: CSV y Excel comparten la misma lógica. Con encabezado,
+  las columnas se reconocen por nombre (con alias) y en cualquier orden. Esto también vale para CSV.
+- Se quitaron `LectorCsvComprobantes` y `LectorCsvPercepciones`, reemplazados por los nuevos.
+- Se silenció el aviso de log4j que genera POI en la consola.
 
 ### Backend completo: percepciones, impuestos, reportes y padrones
 - `PercepcionServiceImpl` con importación CSV (`LectorCsvPercepciones`): las percepciones ya no se pierden al cerrar.
@@ -267,11 +313,12 @@ Cada test usa una base SQLite temporal propia y **nunca toca la base real**
 
 ## 7. Próximos pasos sugeridos
 1. Reemplazar las fórmulas provisorias de impuestos con lo que defina la contadora (ver §8).
-2. Importación desde el formato real de ARCA ("Mis Comprobantes" y percepciones): pedir archivos de ejemplo.
-   Para Excel y PDF hacen falta Apache POI y PDFBox.
-3. Validar el dígito verificador del CUIT.
-4. Mover `view.Modelos` a un paquete `model`.
-5. Borrar `FrPrincipal` y `FrClientes`: son restos del editor visual y no se usan.
+2. Ajustar la importación al formato real de ARCA ("Mis Comprobantes" y percepciones) con archivos de ejemplo:
+   tipo "1 - Factura A", alícuotas de IVA separadas, etc.
+3. PDF: solo si la contadora lo necesita y según qué PDFs use (ver §8). Haría falta Apache PDFBox.
+4. Validar el dígito verificador del CUIT.
+5. Mover `view.Modelos` a un paquete `model`.
+6. Borrar `FrPrincipal` y `FrClientes`: son restos del editor visual y no se usan.
 
 ## 8. Pendientes para definir con la contadora
 - **Ganancias:** ¿qué necesita ver? ¿Anticipos, DDJJ anual, un estimado? ¿Sus clientes son personas humanas
@@ -279,4 +326,18 @@ Cada test usa una base SQLite temporal propia y **nunca toca la base real**
 - **SUSS:** ¿de dónde sale la nómina real (F.931)? ¿Las retenciones de SUSS sufridas se toman a cuenta?
 - **IVA:** ¿se arrastra automáticamente el saldo a favor del mes anterior?
 - **Ingresos Brutos:** ¿lo quiere calcular? Hoy se pueden cargar percepciones de IIBB, pero no hay cálculo.
-- **Importación:** ejemplos reales de los archivos que baja de ARCA.
+- **Importación (Excel/CSV):** pedirle **archivos reales de ejemplo** de lo que baja de ARCA: "Mis Comprobantes"
+  emitidos y recibidos, y los listados de percepciones y retenciones (Mis Retenciones / SIRE). Con eso se
+  ajustan los nombres de columnas y el formato del tipo de comprobante.
+- **PDF:** antes de programar nada, saber:
+  - **¿Qué PDFs usa?** ¿Facturas emitidas desde ARCA ("Comprobantes en línea"), facturas que les mandan los
+    proveedores (cada uno con su diseño) o escaneos/fotos de papel?
+  - **¿Para qué los usa?** ¿Cargar compras una por una, o tiene listados en PDF?
+  - **¿Cuántos por mes?** Si son pocos, cargarlos a mano puede ser más seguro que leerlos automáticamente.
+  - **¿Puede bajar lo mismo en Excel?** Si "Mis Comprobantes" ya trae todo, el PDF quizás no haga falta.
+  - **Pedirle 3 o 4 PDFs de ejemplo** de cada tipo que use (con datos reales o de prueba).
+
+  Contexto para decidir: un PDF de **un solo diseño conocido** (como los de ARCA) se puede leer bastante bien,
+  y además las facturas electrónicas traen un código QR con fecha, CUIT, punto de venta, número y total.
+  Si los PDFs son de **diseños distintos** o **escaneados**, leerlos automáticamente es poco confiable y en un
+  sistema contable un monto mal leído es un problema serio.

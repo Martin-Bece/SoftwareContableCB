@@ -15,6 +15,15 @@ import java.util.*;
 /**
  * Implementacion en memoria con datos de demostracion.
  * Sirve para ver y probar las vistas; se descarta al conectar el backend real.
+ *
+ * <p>Tiene dos modos:</p>
+ * <ul>
+ *   <li>{@link #ServiciosMock()}: todo en memoria con datos de ejemplo (modo demo).</li>
+ *   <li>{@link #ServiciosMock(ClienteService, ComprobanteService)}: modo hibrido. Clientes y
+ *       comprobantes vienen del backend real; percepciones y contrapartes siguen en memoria
+ *       (vacias, se pierden al cerrar) y los calculos de impuestos y reportes se hacen
+ *       sobre los comprobantes reales.</li>
+ * </ul>
  */
 public class ServiciosMock implements ClienteService, ComprobanteService, PercepcionService,
         ImpuestoService, ReporteService, ContraparteService {
@@ -27,8 +36,20 @@ public class ServiciosMock implements ClienteService, ComprobanteService, Percep
     private final Random rnd = new Random(20260919L);
     private long secuencia = 1;
 
+    /** De donde salen clientes y comprobantes para los calculos (este mismo mock o el backend real). */
+    private final ClienteService fuenteClientes;
+    private final ComprobanteService fuenteComprobantes;
+
     public ServiciosMock() {
+        this.fuenteClientes = this;
+        this.fuenteComprobantes = this;
         semilla();
+    }
+
+    /** Modo hibrido: ver la documentacion de la clase. No carga datos de ejemplo. */
+    public ServiciosMock(ClienteService clientesReales, ComprobanteService comprobantesReales) {
+        this.fuenteClientes = Objects.requireNonNull(clientesReales);
+        this.fuenteComprobantes = Objects.requireNonNull(comprobantesReales);
     }
 
     /* ================================================================
@@ -412,13 +433,13 @@ public class ServiciosMock implements ClienteService, ComprobanteService, Percep
         PosicionIva pos = new PosicionIva();
         pos.periodo = periodo;
 
-        for (Comprobante c : listarComprobantes(cuitCliente, Operacion.VENTA, periodo, null)) {
+        for (Comprobante c : fuenteComprobantes.listarComprobantes(cuitCliente, Operacion.VENTA, periodo, null)) {
             BigDecimal signo = BigDecimal.valueOf(c.signo());
             pos.cantidadVentas++;
             pos.netoVentas = pos.netoVentas.add(c.netoGravado().multiply(signo));
             pos.debitoFiscal = pos.debitoFiscal.add(c.ivaTotal().multiply(signo));
         }
-        for (Comprobante c : listarComprobantes(cuitCliente, Operacion.COMPRA, periodo, null)) {
+        for (Comprobante c : fuenteComprobantes.listarComprobantes(cuitCliente, Operacion.COMPRA, periodo, null)) {
             BigDecimal signo = BigDecimal.valueOf(c.signo());
             pos.cantidadCompras++;
             pos.netoCompras = pos.netoCompras.add(c.netoGravado().multiply(signo));
@@ -453,7 +474,7 @@ public class ServiciosMock implements ClienteService, ComprobanteService, Percep
             }
             out.add(r);
         } else if (tributo == Tributo.SUSS) {
-            Cliente c = clientes.get(cuitCliente);
+            Cliente c = fuenteClientes.buscarPorCuit(cuitCliente);
             if (c == null || !c.isTieneEmpleados()) return out;
             ResumenTributo contribuciones = new ResumenTributo();
             contribuciones.tributo = tributo;
@@ -487,13 +508,13 @@ public class ServiciosMock implements ClienteService, ComprobanteService, Percep
         YearMonth actual = desde;
         while (!actual.isAfter(hasta)) {
             TotalPeriodo t = new TotalPeriodo(actual);
-            for (Comprobante c : listarComprobantes(cuitCliente, Operacion.VENTA, actual, null)) {
+            for (Comprobante c : fuenteComprobantes.listarComprobantes(cuitCliente, Operacion.VENTA, actual, null)) {
                 BigDecimal signo = BigDecimal.valueOf(c.signo());
                 t.cantidadVentas++;
                 t.netoVentas = t.netoVentas.add(c.netoGravado().multiply(signo));
                 t.ivaVentas = t.ivaVentas.add(c.ivaTotal().multiply(signo));
             }
-            for (Comprobante c : listarComprobantes(cuitCliente, Operacion.COMPRA, actual, null)) {
+            for (Comprobante c : fuenteComprobantes.listarComprobantes(cuitCliente, Operacion.COMPRA, actual, null)) {
                 BigDecimal signo = BigDecimal.valueOf(c.signo());
                 t.cantidadCompras++;
                 t.netoCompras = t.netoCompras.add(c.netoGravado().multiply(signo));

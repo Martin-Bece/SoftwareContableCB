@@ -116,9 +116,9 @@ public class DialogoCliente extends JDialog{
         grid.setOpaque(false);
         
         grid.add(campo("CUIT", txtCuit), Componentes.gbc(0, 0, 1, 0.4));
-        grid.add(campo("Razon social", txtCuit), Componentes.gbc(1, 0, 1, 0.6));
-        grid.add(campo("Nombre de fantasia", txtCuit), Componentes.gbc(0, 1, 1, 0.4));
-        grid.add(campo("Direccion", txtCuit), Componentes.gbc(1, 1, 1, 0.6));
+        grid.add(campo("Razon social", txtRazon), Componentes.gbc(1, 0, 1, 0.6));
+        grid.add(campo("Nombre de fantasia", txtFantasia), Componentes.gbc(0, 1, 1, 0.4));
+        grid.add(campo("Direccion", txtDireccion), Componentes.gbc(1, 1, 1, 0.6));
         
         p.add(grid, BorderLayout.CENTER);
         return p;

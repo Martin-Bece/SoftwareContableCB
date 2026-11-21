@@ -1,1 +1,9 @@
 /SoftwareContableCB/target/
+
+# NetBeans (configuracion local de cada uno)
+nbproject/private/
+nbactions.xml
+nb-configuration.xml
+
+# Bases de datos locales: nunca subir datos de clientes al repo
+*.db

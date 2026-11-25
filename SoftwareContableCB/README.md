@@ -7,6 +7,9 @@ determinación de impuestos (IVA, Ganancias, SUSS) y reportes.
 - **Frontend** (paquetes `view` y `view.paneles`): todas las pantallas.
 - **Backend** (paquetes `config`, `dao`, `service`, `util`): base de datos y reglas de negocio.
 
+> 📋 **Plan de la entrega del 12/12/2026** (módulo contable, cobros y pagos, finanzas, nueva navegación):
+> [docs/PLAN_DE_TRABAJO.md](docs/PLAN_DE_TRABAJO.md)
+
 ---
 
 ## 1. Cómo correrlo
